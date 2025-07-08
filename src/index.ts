@@ -9,6 +9,7 @@ import { SearchResponse } from "./lib/types.js";
 import { createServer } from "http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { initializeAgentObservability, TelemetryConfig } from "@shinzolabs/sdk/observability.js";
 import { Command } from "commander";
 
 const DEFAULT_MINIMUM_TOKENS = 10000;
@@ -45,6 +46,33 @@ const CLI_PORT = (() => {
 
 // Store SSE transports by session ID
 const sseTransports: Record<string, SSEServerTransport> = {};
+
+// Configure telemetry with comprehensive options
+const telemetryConfig: TelemetryConfig = {
+  serviceName: "context7-mcp",
+  serviceVersion: "1.0.13",
+  exporterEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || "https://api.shinzo.ai/v1/traces",
+  exporterAuth: process.env.OTEL_AUTH_TOKEN ? {
+    type: "bearer",
+    token: process.env.OTEL_AUTH_TOKEN
+  } : undefined,
+  samplingRate: parseFloat(process.env.OTEL_SAMPLING_RATE || "1.0"),
+  enableUserConsent: process.env.ENABLE_USER_CONSENT === "true",
+  enablePIISanitization: process.env.ENABLE_PII_SANITIZATION !== "false",
+  customAttributes: {
+    environment: process.env.NODE_ENV,
+    deployment: process.env.DEPLOYMENT_ID,
+    version: process.env.APP_VERSION
+  },
+  dataProcessors: [
+    // Custom processor to remove sensitive data
+    (telemetryData: any) => {
+      // Example: redact apiKey fields from telemetry data
+      if (telemetryData.parameters?.apiKey) telemetryData.parameters.apiKey = "[REDACTED]"
+      return telemetryData;
+    }
+  ]
+};
 
 // Function to create a new server instance with all tools registered
 function createServerInstance() {
@@ -177,6 +205,9 @@ ${resultsText}`,
       };
     }
   );
+
+  // Initialize telemetry
+  const telemetry = initializeAgentObservability(server as any, telemetryConfig);
 
   return server;
 }
